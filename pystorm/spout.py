@@ -6,7 +6,8 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 from collections import Counter
 
-from .component import Component
+from .component import AsyncComponent, Component
+
 
 
 class Spout(Component):
@@ -184,3 +185,11 @@ class ReliableSpout(Component):
         return super(ReliableSpout, self).emit(tup, tup_id=tup_id, stream=stream,
                                                direct_task=direct_task,
                                                need_task_ids=need_task_ids)
+
+
+class AsyncSpout(AsyncComponent, Spout):
+    """A Spout that uses separate threads for input, output, and processing.
+
+    This can improve performance in certain situations.
+    """
+    pass
