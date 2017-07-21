@@ -495,7 +495,7 @@ class TicklessBatchingBolt(BatchingBolt):
 
     def _batch_entry(self):
         """Entry point for the batcher thread."""
-        while True:
+        while not self._stopped:
             self._batch_entry_run()
 
     def _run(self):
@@ -522,3 +522,14 @@ class TicklessBatchingBolt(BatchingBolt):
             # reset so that we don't accidentally fail the wrong Tuples
             # if a successive call to read_tuple fails
             self._current_tups = []
+
+    def stop(self):
+        """Stop pystorm threads that may be running for this bolt.
+
+        .. note::
+            This will not stop any custom threads you have added. Just the ones
+            pystorm created.
+        """
+        super(TicklessBatchingBolt, self).stop()
+        # Terminate the batcher thread if we've stopped
+        self._batcher.join()

@@ -209,6 +209,7 @@ class Component(object):
         self._pending_task_ids = deque()
         self._reader_lock = threading.RLock()
         self._writer_lock = threading.RLock()
+        self._stopped = False
         if serializer in _SERIALIZERS:
             self.serializer = _SERIALIZERS[serializer](input_stream,
                                                        output_stream,
@@ -507,7 +508,7 @@ class Component(object):
         Separated out so that we can run this from a thread other than main if
         we wanted to.
         """
-        while True:
+        while not self._stopped:
             try:
                 self._run()
             except StormWentAwayError:
@@ -552,6 +553,7 @@ class Component(object):
         # If there are active threads still running infinite loops, sys.exit
         # won't kill them but os._exit will. os._exit skips calling cleanup
         # handlers, flushing stdio buffers, etc.
+        self.stop()
         exit_func = os._exit if threading.active_count() > 1 else sys.exit
         exit_func(status_code)
 
@@ -574,7 +576,7 @@ class Component(object):
         """
         def _thread_wrapper():
             try:
-                while True:
+                while not self._stopped:
                     entry_point()
             except:
                 self.exc_info = sys.exc_info()
@@ -594,6 +596,15 @@ class Component(object):
         """
         reraise(*self.exc_info)
 
+    def stop(self):
+        """Stop pystorm threads that may be running for this component
+
+        .. note::
+            This will not stop any custom threads you have added. Just the ones
+            pystorm created.
+        """
+        self._stopped = True
+
 
 class AsyncComponent(Component):
     """A Component that uses separate threads for input, output, and processing.
@@ -610,6 +621,7 @@ class AsyncComponent(Component):
         self._reader = self._create_worker_thread(self._reader)
         self._writer = self._create_worker_thread(self._writer)
         self._processor = self._create_worker_thread(self._run_loop)
+        self._stopped = False
 
     def send_message(self, message):
         """Queue up message to send to on stdout"""
@@ -625,7 +637,7 @@ class AsyncComponent(Component):
 
     def _reader(self):
         """Reader thread. Handles reading messages from stdin."""
-        while True:
+        while not self._stopped:
             msg = self.read_message()
             if isinstance(msg, list):
                 self._pending_task_ids.put(msg)
@@ -635,7 +647,7 @@ class AsyncComponent(Component):
     def _writer(self):
         """Writer thread. Handles writing messages to stdout."""
         super_self = super(AsyncComponent, self)
-        while True:
+        while not self._stopped:
             msg = self._stdout_queue.get()
             super_self.send_message(msg)
 
@@ -660,5 +672,18 @@ class AsyncComponent(Component):
         self._processor.start()
 
         # Wait forever, since exceptions will be raised via SIGUSR2
-        while True:
+        while not self._stopped:
             time.sleep(0.1)
+
+    def stop(self):
+        """Stop pystorm threads that may be running for this component
+
+        .. note::
+            This will not stop any custom threads you have added. Just the ones
+            pystorm created.
+        """
+        super(AsyncComponent, self).stop()
+        # Join to stop threads when we're not running anymore
+        self._reader.join()
+        self._writer.join()
+        self._processor.join()
